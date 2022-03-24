@@ -15,11 +15,12 @@ import (
 	"github.com/davecgh/go-spew/spew"
 )
 
-const rootURL = "mypsw"
+const rootURL = "example"
+const staticsFolder = "assets"
 
 func handle(w http.ResponseWriter, req *http.Request) {
 	upath := req.URL.Path
-	if strings.HasPrefix(upath, "/static/") {
+	if strings.HasPrefix(upath, "/"+staticsFolder+"/") {
 		http.ServeFile(w, req, path.Clean(rootURL+upath))
 	}
 	value, ok := htms[filepath.FromSlash(rootURL+upath+".page.htm")]
