@@ -3,16 +3,18 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"html/template"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
-
-	"github.com/davecgh/go-spew/spew"
+	"syscall"
 )
 
 const rootURL = "example"
@@ -63,10 +65,10 @@ func init() {
 	}
 
 	err = filepath.Walk(root, func(upath string, info os.FileInfo, err error) error {
-		spew.Dump(upath)
+		// spew.Dump(upath)
 		if strings.HasSuffix(upath, ".page.htm") {
 			files := append([]string{upath}, layparts...)
-			spew.Dump(files)
+			// spew.Dump(files)
 			t, err := template.ParseFiles(files...)
 			if err != nil {
 				panic(err)
@@ -105,8 +107,50 @@ func init() {
 	}
 }
 
+func RestartSelf() error {
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	args := os.Args
+	env := os.Environ()
+	// For Windows
+	if runtime.GOOS == "windows" {
+		cmd := exec.Command(self, args[1:]...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Stdin = os.Stdin
+		cmd.Env = env
+		err := cmd.Run()
+		if err == nil {
+			os.Exit(0)
+		}
+		return err
+	}
+	return syscall.Exec(self, args, env)
+}
+
 func main() {
+	var restartOnChange bool
+	flag.BoolVar(&restartOnChange, "w", false, "Watch templates and restart if change detected. Default is false")
+	flag.Parse()
+
+	if restartOnChange {
+		nestedWatchItems, err := NestedWatch("./" + rootURL)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		go func() {
+			for {
+				nestedWatchItem := <-nestedWatchItems
+				log.Println(nestedWatchItem)
+				RestartSelf()
+			}
+		}()
+	}
+
 	srv := &http.Server{Addr: ":7777", Handler: http.HandlerFunc(handle)}
-	log.Printf("Serving on https://127.0.0.1:7777")
+	log.Printf("Serving on http://127.0.0.1:7777")
 	log.Fatal(srv.ListenAndServe())
 }
