@@ -17,7 +17,7 @@ import (
 	"syscall"
 )
 
-const rootURL = "example"
+const rootURL = "template"
 const staticsFolder = "assets"
 
 func handle(w http.ResponseWriter, req *http.Request) {
