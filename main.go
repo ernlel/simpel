@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"html/template"
+	"io/fs"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -17,40 +18,54 @@ import (
 	"syscall"
 )
 
-const rootURL = "template"
-const staticsFolder = "assets"
+var rootURL string
+var staticsFolder string
+var restartOnChange bool
+var port string
 
 func handle(w http.ResponseWriter, req *http.Request) {
 	upath := req.URL.Path
+	if upath != "/" {
+		upath = upath + "/"
+	}
 	if strings.HasPrefix(upath, "/"+staticsFolder+"/") {
 		http.ServeFile(w, req, path.Clean(rootURL+upath))
+		return
 	}
+
 	value, ok := htms[filepath.FromSlash(rootURL+upath+".page.htm")]
 	if ok {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(value))
-	} else {
-		if upath == "/" {
-			upath = ""
-		}
-		value, ok := htms[filepath.FromSlash(rootURL+upath+"/index.page.htm")]
-		if ok {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.Write([]byte(value))
-		} else {
-			w.WriteHeader(404)
-		}
+		return
 	}
+
+	value, ok = htms[filepath.FromSlash(rootURL+upath+"index.page.htm")]
+	if ok {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(value))
+		return
+	}
+
+	w.WriteHeader(404)
+
 }
 
 var htms = map[string]string{}
 
 func init() {
-	root := "./" + rootURL + "/"
+	flag.BoolVar(&restartOnChange, "watch", false, "Watch templates and restart if change detected. Default 'false'")
+	flag.StringVar(&rootURL, "template", "/home/ernest/Documents/Projects/portfolio/web/", "Path to templates folder. Default './example'")
+	flag.StringVar(&staticsFolder, "static", "assets", "name of static folder. Default 'assets'")
+	flag.StringVar(&port, "port", "7777", "Port. Default '7777'")
+	flag.Parse()
+	rootURL = path.Clean(rootURL)
+
 	var layparts []string
 	var laypartsJSON []string
 
-	err := filepath.Walk(root, func(upath string, info os.FileInfo, err error) error {
+	// walk and firstly add layouts and partials
+	err := filepath.WalkDir(rootURL, func(upath string, _ fs.DirEntry, err error) error {
 		if strings.HasSuffix(upath, ".layout.htm") || strings.HasSuffix(upath, ".partial.htm") {
 			layparts = append(layparts, upath)
 			if _, err := os.Stat(upath[0:len(upath)-4] + ".json"); !os.IsNotExist(err) {
@@ -64,11 +79,10 @@ func init() {
 		panic(err)
 	}
 
-	err = filepath.Walk(root, func(upath string, info os.FileInfo, err error) error {
-		// spew.Dump(upath)
+	// walk again and add pages (if walk in one go, so some pages will be missing layouts and partials)
+	err = filepath.WalkDir(rootURL, func(upath string, _ fs.DirEntry, err error) error {
 		if strings.HasSuffix(upath, ".page.htm") {
 			files := append([]string{upath}, layparts...)
-			// spew.Dump(files)
 			t, err := template.ParseFiles(files...)
 			if err != nil {
 				panic(err)
@@ -97,7 +111,7 @@ func init() {
 			if err != nil {
 				panic(err)
 			}
-			htms[strings.ToLower(upath)] = tpl.String()
+			htms[upath] = tpl.String()
 		}
 		return nil
 	})
@@ -131,9 +145,6 @@ func RestartSelf() error {
 }
 
 func main() {
-	var restartOnChange bool
-	flag.BoolVar(&restartOnChange, "w", false, "Watch templates and restart if change detected. Default is false")
-	flag.Parse()
 
 	if restartOnChange {
 		nestedWatchItems, err := NestedWatch("./" + rootURL)
@@ -150,7 +161,7 @@ func main() {
 		}()
 	}
 
-	srv := &http.Server{Addr: ":7777", Handler: http.HandlerFunc(handle)}
-	log.Printf("Serving on http://127.0.0.1:7777")
+	srv := &http.Server{Addr: ":" + port, Handler: http.HandlerFunc(handle)}
+	log.Printf("Serving on http://127.0.0.1:" + port)
 	log.Fatal(srv.ListenAndServe())
 }
