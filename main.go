@@ -83,7 +83,13 @@ func init() {
 	err = filepath.WalkDir(rootURL, func(upath string, _ fs.DirEntry, err error) error {
 		if strings.HasSuffix(upath, ".page.htm") {
 			files := append([]string{upath}, layparts...)
-			t, err := template.ParseFiles(files...)
+			name := path.Base(files[0])
+			t, err := template.New(name).Funcs(template.FuncMap{
+				"unescapeHTML": func(s string) template.HTML {
+					return template.HTML(s)
+				},
+			}).ParseFiles(files...)
+
 			if err != nil {
 				panic(err)
 			}
